@@ -1,0 +1,225 @@
+version: "3.9"
+services:
+  step-ca:
+    image: smallstep/step-ca
+    restart: always
+    environment:
+      DOCKER_STEPCA_INIT_NAME: Smallstep
+      DOCKER_STEPCA_INIT_DNS_NAMES: $DOMAINNAME,local
+      DOCKER_STEPCA_INIT_PROVISIONER_NAME: admin
+      DOCKER_STEPCA_INIT_PASSWORD: pass123
+    networks:
+      static-network:
+        aliases:
+          - "ca.$DOMAINNAME"
+      traf-external:
+        aliases:
+          - "ca.$DOMAINNAME"
+    dns:
+      - 11.200.100.10
+    extra_hosts:
+      - "*.$DOMAINNAME:11.200.100.10"
+    expose:
+      - 9000
+    ports:
+      - 9000:9000
+    volumes:
+      - ./data/step-ca:/home/step
+    labels:
+      - "traefik.enable=true"
+      - 'traefik.docker.network=traf-external'
+      - "traefik.http.routers.ca-web.entrypoints=web"
+      - "traefik.http.routers.ca-web.rule=Host(`ca.$DOMAINNAME`)"
+
+      - "traefik.http.middlewares.ca-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.ca-web.middlewares=ca-redirect"
+
+      - "traefik.http.routers.ca-websecure.entrypoints=websecure"
+      - "traefik.http.routers.ca-websecure.rule=Host(`ca.$DOMAINNAME`)"
+      - "traefik.http.services.ca.loadbalancer.server.port=9000"
+      - "traefik.http.routers.ca-websecure.tls=true"
+      - "traefik.http.routers.ca-websecure.tls.certresolver=myresolver"
+  traefik:
+    image: traefik:v2.4
+    restart: always
+    depends_on:
+      - step-ca
+    networks:
+      static-network:
+        ipv4_address: 11.200.100.10
+      traf-external:
+        aliases:
+          - "traefik"
+          - "traefik.$DOMAINNAME"
+          - "whoami.$DOMAINNAME"
+          - "portainer.$DOMAINNAME"
+          - "mse.$DOMAINNAME"
+          - "msedb.$DOMAINNAME"
+          - "mailhog.$DOMAINNAME"
+    command:
+      - "--api.insecure=true"
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=traf-external"
+      - "--providers.file.watch=true"
+      - "--accesslog=false"
+      - "--log=true"
+      - "--log.level=DEBUG"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesResolvers.myresolver.acme.tlsChallenge=true"
+      - "--certificatesResolvers.myresolver.acme.email=admin"
+      - "--certificatesResolvers.myresolver.acme.storage=/etc/acme/acme.json"
+      - "--certificatesresolvers.myresolver.acme.caserver=https://ca.$DOMAINNAME:9000/acme/acme/directory"
+      - "--certificatesResolvers.myresolver.acme.httpChallenge=true"
+      - "--certificatesResolvers.myresolver.acme.httpChallenge.entryPoint=websecure"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/step-ca/certs/root_ca.crt:/usr/local/share/ca-certificates/my_root_ca.crt
+      - ./site_home_local.crt:/certs/wild_$DOMAINNAME.crt:ro
+      - ./site_home_local.key:/certs/wild_$DOMAINNAME.key:ro
+      - ./ca.crt:/certs/ca.crt
+      - ./traefik_config/traefik.yml:/traefik.yml:ro
+      - ./traefik_config/log/access.log:/log/access.log
+      - ./traefik_config/acme/acme.json:/etc/acme/acme.json
+      - ./traefik_config/configurations:/configurations
+    environment:
+      LEGO_CA_CERTIFICATES: "/usr/local/share/ca-certificates/my_root_ca.crt"
+      LEGO_CA_SERVER_NAME: "ca.$DOMAINNAME"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik0.entrypoints=web"
+      - "traefik.http.routers.traefik0.rule=Host(`traefik.$DOMAINNAME`)"
+      - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+      - "traefik.http.middlewares.traefik-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.traefik0.middlewares=traefik-redirect"
+      - "traefik.http.routers.traefik1.entrypoints=websecure"
+      - "traefik.http.routers.traefik1.rule=Host(`traefik.$DOMAINNAME`)"
+      - "traefik.http.routers.traefik1.tls=true"
+      - "traefik.http.routers.traefik1.tls.certresolver=myresolver"
+  whoami:
+    image: containous/whoami:latest
+    hostname: "whoami1"
+    networks:
+      - traf-external
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.whoami0.entrypoints=web"
+      - "traefik.http.routers.whoami0.rule=Host(`whoami.$DOMAINNAME`)"
+      - "traefik.http.middlewares.whoami-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.whoami0.middlewares=whoami-redirect"
+      - "traefik.http.routers.whoami1.entrypoints=websecure"
+      - "traefik.http.routers.whoami1.rule=Host(`whoami.$DOMAINNAME`)"
+      - "traefik.http.routers.whoami1.tls=true"
+      - "traefik.http.routers.whoami1.tls.certresolver=myresolver"
+
+  portainer:
+    image: portainer/portainer-ee:latest
+    command: -H unix:///var/run/docker.sock
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+      - ./docker/portainer/data:/data
+    ports:
+      - 9001:9000
+    networks:
+      traf-external:
+        aliases:
+          - "portainer.$DOMAINNAME"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.portainer-web.entrypoints=web"
+      - "traefik.http.routers.portainer-web.rule=Host(`portainer.$DOMAINNAME`)"
+      - "traefik.http.middlewares.portainer-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.portainer-web.middlewares=portainer-redirect"
+      - "traefik.http.routers.portainer-websecure.entrypoints=websecure"
+      - "traefik.http.routers.portainer-websecure.rule=Host(`portainer.$DOMAINNAME`)"
+      - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+      - "traefik.http.routers.portainer-websecure.tls=true"
+      - "traefik.http.routers.portainer-websecure.tls.certresolver=myresolver"
+####Dozzle is a simple, a web based interface to monitor your Docker container logs
+  dozzle:
+    container_name: dozzle_logs
+    image: amir20/dozzle:$DOZZLEVERSION
+    restart: always
+    networks:
+      - traf-external
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - 9999:8080
+    labels:
+      - traefik.enable=false
+####Mailhog For Local Testing
+  mailhog:
+    container_name: mailhog
+    restart: always
+    image: mailhog/mailhog:latest
+    expose:
+      - 8025
+      - 1025
+    networks:
+      traf-external:
+        aliases:
+          - "mailhog.$DOMAINNAME"
+      mailhog:
+        aliases:
+          - "mailhog"
+          - "mailhog.$DOMAINNAME"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.mailhog.rule=Host(`mailhog.$DOMAINNAME`)
+      - traefik.http.routers.mailhog.entrypoints=web
+      - traefik.http.routers.mailhog-secure.rule=Host(`mailhog.$DOMAINNAME`)
+      - traefik.http.routers.mailhog-secure.entrypoints=websecure
+      - traefik.http.routers.mailhog-secure.tls=true
+      - traefik.http.routers.mailhog-secure.tls.certresolver=myresolver
+      - traefik.http.services.mailhog-secure.loadbalancer.server.port=8025
+      - traefik.http.routers.mailhog.middlewares=middlewares-https-redirect@file
+      - traefik.http.routers.mailhog-secure.middlewares=chain-authelia@file
+####whoami test in front page
+  whoami2:
+    container_name: frontpage
+    image: containous/whoami
+    restart: always
+    depends_on:
+      - traefik
+    expose:
+      - 80
+    networks:
+      - traf-external
+    labels:
+      - traefik.enable=true
+      ## Routers Rules
+      - traefik.http.routers.whoami-http-rtr.rule=Host(`test.$DOMAINNAME`)
+      - traefik.http.routers.whoami-http-rtr.entrypoints=web
+      - traefik.http.routers.whoami-https-rtr.rule=Host(`test.$DOMAINNAME`)
+      - traefik.http.routers.whoami-https-rtr.entrypoints=websecure
+      - traefik.http.routers.whoami-https-rtr.tls=true
+      - traefik.http.routers.whoami-https-rtr.tls.certresolver=myresolver
+      ## Middlewares Rules
+      - traefik.http.routers.whoami-http-rtr.middlewares=middlewares-https-redirect@file
+      - traefik.http.routers.whoami-https-rtr.middlewares=chain-authelia@file
+volumes:
+  portainer_data:
+########################### NETWORKS
+# Create proxy network
+# $ docker network create --gateway 192.168.90.1 --subnet 192.168.90.0/24 traf-external
+networks:
+  mailhog:
+    name: mailhog
+  traf-external:
+    external: true
+    name: traf-external
+  static-network:
+    ipam:
+      config:
+        - subnet: 11.200.100.0/24
+  default:
+    driver: bridge

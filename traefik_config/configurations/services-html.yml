@@ -1,0 +1,23 @@
+## Dynamic configuration
+http:
+  services:
+    traefik-svc:
+      loadBalancer:
+        servers:
+        - url: "http://127.0.0.1/"
+
+
+http:
+    middlewares:
+        my-sablier:
+            plugin:
+                sablier:
+                    dynamic:
+                        displayName: My Title
+                        refreshFrequency: 5s
+                        showDetails: "true"
+                        theme: hacker-terminal
+                    names: whoami,nginx
+                    sablierUrl: http://sablier:10000
+                    sessionDuration: 1m
+

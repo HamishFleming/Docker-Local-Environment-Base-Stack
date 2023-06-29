@@ -1,0 +1,15 @@
+http:
+  middlewares:
+    middlewares-https-redirect:
+      redirectScheme:
+        scheme: https
+        permanent: true
+        port: 443
+
+    middlewares-authelia:
+      forwardAuth:
+          address: "http://authelia:9091/api/verify?rd=https://auth.dev.local"
+          trustForwardHeader: true
+          authResponseHeaders:
+              - "Remote-User"
+              - "Remote-Groups"

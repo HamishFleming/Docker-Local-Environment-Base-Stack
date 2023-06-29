@@ -1,0 +1,16 @@
+http:
+  routers:
+    dashboard2:
+      rule: Host(`traefik.dev.local`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))
+      service: api@internal
+      entryPoints:
+        - traefik
+      middlewares:
+        - middlewares-https-redirect
+      rule: Host(`traefik.dev.local`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))
+      service: api@internal
+      entryPoints:
+        - websecure
+      tls: true
+      tls:
+        certResolver: myresolver

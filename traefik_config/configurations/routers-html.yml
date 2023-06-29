@@ -1,0 +1,18 @@
+# Dynamic configuration
+http:
+  routers:
+    dashboard:
+      entryPoints:
+        - traefik
+      rule: PathPrefix(`/api`) || PathPrefix(`/dashboard`)
+      service: api@internal
+      middlewares:
+        - middlewares-https-redirect
+    api-router:
+      rule: "PathPrefix(`/api`) || PathPrefix(`/dashboard`)"
+      service: api@internal
+      entryPoints:
+        - web
+      middlewares:
+        - middlewares-https-redirect
+
